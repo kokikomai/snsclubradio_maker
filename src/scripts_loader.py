@@ -1,4 +1,6 @@
 """過去の原稿読み込みモジュール"""
+from __future__ import annotations
+
 from pathlib import Path
 
 from .config import Config

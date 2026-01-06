@@ -1,4 +1,6 @@
 """SNSクラブラジオ原稿作成ツール - Webアプリ"""
+from __future__ import annotations
+
 import streamlit as st
 from datetime import datetime
 from pathlib import Path

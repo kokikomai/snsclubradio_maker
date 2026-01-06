@@ -1,4 +1,6 @@
 """AI生成モジュール（題材提案・原稿作成）"""
+from __future__ import annotations
+
 import anthropic
 
 from .config import Config

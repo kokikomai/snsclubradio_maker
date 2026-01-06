@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """SNSクラブラジオ原稿作成ツール"""
+from __future__ import annotations
+
 import sys
 from datetime import datetime
 from pathlib import Path
