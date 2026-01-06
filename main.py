@@ -13,6 +13,8 @@ from rich.table import Table
 from src.config import Config
 from src.sheets import SheetsClient
 from src.ai_generator import AIGenerator
+from src.scripts_loader import ScriptsLoader
+from src.scorer import QuestionScorer
 
 console = Console()
 
@@ -22,7 +24,7 @@ def print_header():
     console.print(
         Panel.fit(
             "[bold blue]SNSクラブラジオ 原稿作成ツール[/bold blue]\n"
-            "[dim]生徒の質問から題材を提案し、原稿を自動生成します[/dim]",
+            "[dim]生徒の質問をスコアリングし、原稿を自動生成します[/dim]",
             border_style="blue",
         )
     )
@@ -41,42 +43,97 @@ def validate_config() -> bool:
     return True
 
 
+def load_past_scripts(loader: ScriptsLoader) -> list[str]:
+    """過去の原稿を読み込む"""
+    console.print("[bold]1. 過去の原稿を読み込み中...[/bold]")
+
+    with console.status("[bold green]原稿ファイルを読み込み中..."):
+        titles = loader.get_all_titles()
+
+    console.print(f"[green]✓ {len(titles)}本の過去原稿を読み込みました[/green]")
+    console.print()
+
+    return titles
+
+
 def fetch_questions(sheets_client: SheetsClient) -> list[dict]:
     """スプレッドシートから質問を取得"""
-    console.print("[bold]1. 質問を取得中...[/bold]")
+    console.print("[bold]2. 質問を取得中...[/bold]")
 
     with console.status("[bold green]Googleスプレッドシートに接続中..."):
         sheets_client.authenticate()
 
     with console.status("[bold green]質問を読み込み中..."):
-        questions = sheets_client.get_questions(limit=50)
+        questions = sheets_client.get_questions(limit=100)  # 多めに取得
 
     if not questions:
         console.print("[yellow]質問が見つかりませんでした。[/yellow]")
         console.print(f"[dim]シート名: {Config.SHEET_NAME}, 列: {Config.QUESTION_COLUMN}[/dim]")
         return []
 
-    # 質問一覧を表示
-    table = Table(title=f"取得した質問 ({len(questions)}件)")
-    table.add_column("No.", style="dim", width=4)
-    table.add_column("質問内容")
-
-    for i, q in enumerate(questions, 1):
-        # 長い質問は省略
-        question_text = q["question"]
-        if len(question_text) > 80:
-            question_text = question_text[:77] + "..."
-        table.add_row(str(i), question_text)
-
-    console.print(table)
+    console.print(f"[green]✓ {len(questions)}件の質問を取得しました[/green]")
     console.print()
 
     return questions
 
 
+def score_questions(
+    scorer: QuestionScorer,
+    questions: list[dict],
+    past_titles: list[str],
+) -> list[dict]:
+    """質問をスコアリングして上位を取得"""
+    console.print("[bold]3. 質問をスコアリング中...[/bold]")
+
+    with console.status("[bold green]AIが質問を分析中...（少し時間がかかります）"):
+        top_questions = scorer.get_top_questions(questions, past_titles)
+
+    if not top_questions:
+        console.print("[yellow]スコアリングに失敗しました。[/yellow]")
+        return []
+
+    # スコアリング結果を表示
+    console.print()
+    console.print(f"[bold green]上位{len(top_questions)}件の質問:[/bold green]")
+    console.print()
+
+    table = Table(title="スコアリング結果")
+    table.add_column("順位", style="bold", width=4)
+    table.add_column("スコア", style="cyan", width=6)
+    table.add_column("内訳", style="dim", width=12)
+    table.add_column("質問内容", width=50)
+    table.add_column("評価理由", style="dim", width=30)
+
+    for i, q in enumerate(top_questions, 1):
+        question_text = q["question"]
+        if len(question_text) > 50:
+            question_text = question_text[:47] + "..."
+
+        reason = q.get("reason", "")
+        if len(reason) > 30:
+            reason = reason[:27] + "..."
+
+        breakdown = f"需{q.get('demand_score', 0)}/新{q.get('freshness_score', 0)}/具{q.get('specificity_score', 0)}"
+
+        table.add_row(
+            str(i),
+            str(q.get("score", 0)),
+            breakdown,
+            question_text,
+            reason,
+        )
+
+    console.print(table)
+    console.print()
+    console.print("[dim]スコア内訳: 需=需要, 新=新鮮さ, 具=具体性 (各10点満点)[/dim]")
+    console.print()
+
+    return top_questions
+
+
 def suggest_topics(ai_generator: AIGenerator, questions: list[dict]) -> list[dict]:
     """題材を提案"""
-    console.print("[bold]2. 題材を提案中...[/bold]")
+    console.print("[bold]4. 題材を提案中...[/bold]")
 
     num_topics = IntPrompt.ask(
         "提案する題材の数",
@@ -115,7 +172,7 @@ def suggest_topics(ai_generator: AIGenerator, questions: list[dict]) -> list[dic
 
 def select_topic(topics: list[dict]) -> dict | None:
     """題材を選択"""
-    console.print("[bold]3. 題材を選択してください[/bold]")
+    console.print("[bold]5. 題材を選択してください[/bold]")
 
     while True:
         choice = Prompt.ask(
@@ -144,10 +201,10 @@ def generate_script(
     questions: list[dict],
 ) -> str:
     """原稿を生成"""
-    console.print("[bold]4. 原稿を生成中...[/bold]")
+    console.print("[bold]6. 原稿を生成中...[/bold]")
 
     # オプション設定
-    host_name = Prompt.ask("パーソナリティ名", default="パーソナリティ")
+    host_name = Prompt.ask("パーソナリティ名", default="駒居")
     program_name = Prompt.ask("番組名", default="SNSクラブラジオ")
     duration = IntPrompt.ask("目安時間（分）", default=10)
 
@@ -166,7 +223,7 @@ def generate_script(
 def display_and_save_script(script: str) -> Path | None:
     """原稿を表示して保存"""
     console.print()
-    console.print("[bold]5. 生成された原稿[/bold]")
+    console.print("[bold]7. 生成された原稿[/bold]")
     console.print()
 
     # Markdownとして表示
@@ -218,30 +275,47 @@ def main():
         # 初期化
         sheets_client = SheetsClient()
         ai_generator = AIGenerator()
+        scripts_loader = ScriptsLoader()
+        scorer = QuestionScorer()
 
-        # 1. 質問取得
+        # 1. 過去の原稿を読み込み
+        past_titles = load_past_scripts(scripts_loader)
+        if not past_titles:
+            console.print("[yellow]過去の原稿が見つかりません。スコアリングなしで続行します。[/yellow]")
+            past_titles = []
+
+        # 2. 質問取得
         questions = fetch_questions(sheets_client)
         if not questions:
             sys.exit(1)
 
-        # 2. 題材提案
-        topics = suggest_topics(ai_generator, questions)
+        # 3. スコアリング（過去の原稿がある場合）
+        if past_titles:
+            top_questions = score_questions(scorer, questions, past_titles)
+            if not top_questions:
+                console.print("[yellow]スコアリングに失敗しました。全質問を使用します。[/yellow]")
+                top_questions = questions[:10]
+        else:
+            top_questions = questions[:10]
+
+        # 4. 題材提案
+        topics = suggest_topics(ai_generator, top_questions)
         if not topics:
             sys.exit(1)
 
-        # 3. 題材選択
+        # 5. 題材選択
         selected_topic = select_topic(topics)
         if not selected_topic:
             console.print("[yellow]終了します。[/yellow]")
             sys.exit(0)
 
-        # 4. 原稿生成
-        script = generate_script(ai_generator, selected_topic, questions)
+        # 6. 原稿生成
+        script = generate_script(ai_generator, selected_topic, top_questions)
 
-        # 5. 表示・保存
+        # 7. 表示・保存
         display_and_save_script(script)
 
-        # 6. 修正ループ
+        # 8. 修正ループ
         final_script = refine_script_loop(ai_generator, script)
 
         # 最終保存

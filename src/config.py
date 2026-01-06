@@ -21,6 +21,12 @@ class Config:
     # 出力設定
     OUTPUT_DIR: Path = Path(os.getenv("OUTPUT_DIR", "output"))
 
+    # 過去の原稿ディレクトリ
+    SCRIPTS_DIR: Path = Path(os.getenv("SCRIPTS_DIR", "/home/user/SnsClub-radio/past drafts"))
+
+    # スコアリング設定
+    TOP_QUESTIONS_COUNT: int = int(os.getenv("TOP_QUESTIONS_COUNT", "10"))
+
     # Google OAuth スコープ
     SCOPES: list[str] = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
 
