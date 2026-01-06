@@ -11,12 +11,26 @@ from src.ai_generator import AIGenerator
 from src.scripts_loader import ScriptsLoader
 from src.scorer import QuestionScorer
 
+
+@st.cache_data
+def load_past_scripts():
+    """過去原稿を自動読み込み（キャッシュ）"""
+    try:
+        loader = ScriptsLoader()
+        return loader.get_all_titles()
+    except FileNotFoundError:
+        return []
+
+
 # ページ設定
 st.set_page_config(
     page_title="SNSクラブラジオ 原稿作成ツール",
     page_icon="🎙️",
     layout="wide",
 )
+
+# 過去原稿を自動読み込み（アプリ起動時）
+past_titles = load_past_scripts()
 
 # セッション状態の初期化
 if "step" not in st.session_state:
@@ -31,8 +45,6 @@ if "selected_topic" not in st.session_state:
     st.session_state.selected_topic = None
 if "script" not in st.session_state:
     st.session_state.script = ""
-if "past_titles" not in st.session_state:
-    st.session_state.past_titles = []
 
 
 def reset_state():
@@ -52,13 +64,21 @@ def main():
     # サイドバー：進行状況
     with st.sidebar:
         st.header("📋 進行状況")
+
+        # 過去原稿の読み込み状況を表示
+        if past_titles:
+            st.success(f"📚 過去原稿: {len(past_titles)}本読み込み済み")
+        else:
+            st.warning("📚 過去原稿: なし")
+
+        st.divider()
+
         steps = [
-            "1. 過去原稿の読み込み",
-            "2. 質問の取得",
-            "3. スコアリング",
-            "4. 題材の提案",
-            "5. 題材の選択",
-            "6. 原稿の生成",
+            "1. 質問の取得",
+            "2. スコアリング",
+            "3. 題材の提案",
+            "4. 題材の選択",
+            "5. 原稿の生成",
         ]
         for i, step in enumerate(steps, 1):
             if i < st.session_state.step:
@@ -82,25 +102,9 @@ def main():
         st.info("`.env` ファイルを確認してください")
         return
 
-    # Step 1: 過去原稿の読み込み
+    # Step 1: 質問の取得
     if st.session_state.step == 1:
-        st.header("Step 1: 過去原稿の読み込み")
-
-        if st.button("📚 過去原稿を読み込む", type="primary"):
-            with st.spinner("原稿ファイルを読み込み中..."):
-                try:
-                    loader = ScriptsLoader()
-                    st.session_state.past_titles = loader.get_all_titles()
-                    st.success(f"✅ {len(st.session_state.past_titles)}本の過去原稿を読み込みました")
-                    st.session_state.step = 2
-                    st.rerun()
-                except FileNotFoundError as e:
-                    st.error(f"エラー: {e}")
-                    st.info("SCRIPTS_DIR の設定を確認してください")
-
-    # Step 2: 質問の取得
-    elif st.session_state.step == 2:
-        st.header("Step 2: 質問の取得")
+        st.header("Step 1: 質問の取得")
         st.info(f"📊 スプレッドシート: {Config.SHEET_NAME} / {Config.QUESTION_COLUMN}列")
 
         if st.button("📥 スプレッドシートから質問を取得", type="primary"):
@@ -112,16 +116,16 @@ def main():
 
                     if st.session_state.questions:
                         st.success(f"✅ {len(st.session_state.questions)}件の質問を取得しました")
-                        st.session_state.step = 3
+                        st.session_state.step = 2
                         st.rerun()
                     else:
                         st.warning("質問が見つかりませんでした")
                 except Exception as e:
                     st.error(f"エラー: {e}")
 
-    # Step 3: スコアリング
-    elif st.session_state.step == 3:
-        st.header("Step 3: 質問のスコアリング")
+    # Step 2: スコアリング
+    elif st.session_state.step == 2:
+        st.header("Step 2: 質問のスコアリング")
         st.info(f"📝 {len(st.session_state.questions)}件の質問をAIがスコアリングします")
 
         col1, col2 = st.columns(2)
@@ -134,17 +138,17 @@ def main():
                     scorer = QuestionScorer()
                     st.session_state.top_questions = scorer.get_top_questions(
                         st.session_state.questions,
-                        st.session_state.past_titles,
+                        past_titles,
                         top_n=top_n,
                     )
-                    st.session_state.step = 4
+                    st.session_state.step = 3
                     st.rerun()
                 except Exception as e:
                     st.error(f"エラー: {e}")
 
-    # Step 4: 題材の提案
-    elif st.session_state.step == 4:
-        st.header("Step 4: 題材の提案")
+    # Step 3: 題材の提案
+    elif st.session_state.step == 3:
+        st.header("Step 3: 題材の提案")
 
         # スコアリング結果を表示
         st.subheader("📊 スコアリング結果（上位質問）")
@@ -172,14 +176,14 @@ def main():
                         st.session_state.top_questions,
                         num_topics=num_topics,
                     )
-                    st.session_state.step = 5
+                    st.session_state.step = 4
                     st.rerun()
                 except Exception as e:
                     st.error(f"エラー: {e}")
 
-    # Step 5: 題材の選択
-    elif st.session_state.step == 5:
-        st.header("Step 5: 題材の選択")
+    # Step 4: 題材の選択
+    elif st.session_state.step == 4:
+        st.header("Step 4: 題材の選択")
 
         for i, topic in enumerate(st.session_state.topics):
             with st.container():
@@ -190,13 +194,13 @@ def main():
                 with col2:
                     if st.button(f"✅ 選択", key=f"select_{i}"):
                         st.session_state.selected_topic = topic
-                        st.session_state.step = 6
+                        st.session_state.step = 5
                         st.rerun()
                 st.divider()
 
-    # Step 6: 原稿の生成
-    elif st.session_state.step == 6:
-        st.header("Step 6: 原稿の生成")
+    # Step 5: 原稿の生成
+    elif st.session_state.step == 5:
+        st.header("Step 5: 原稿の生成")
 
         st.success(f"選択した題材: **{st.session_state.selected_topic['title']}**")
 
